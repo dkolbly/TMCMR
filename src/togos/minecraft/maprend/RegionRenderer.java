@@ -33,6 +33,11 @@ import togos.minecraft.maprend.io.RegionFile;
 
 public class RegionRenderer
 {
+    public static final int NORMAL_COLOR_MAP = 0;
+    public static final int DENSITY_GRAYSCALE_MAP = 1;
+    public static final int BASEMENT_GRAYSCALE_MAP = 2;
+    public static final int ALTITUDE_GRAYSCALE_MAP = 3;
+
 	static class Timer {
 		public long regionLoading;
 		public long preRendering;
@@ -63,6 +68,7 @@ public class RegionRenderer
 	public final int maxAltitudeShading;
 	public final String mapTitle;
 	public final int[] mapScales;
+        public final int outputMode;
 
 	/**
 	 * Alpha below which blocks are considered transparent for purposes of shading
@@ -73,7 +79,7 @@ public class RegionRenderer
 	public RegionRenderer(
 		BlockMap blockMap, BiomeMap biomeMap, boolean debug, int minHeight, int maxHeight,
 		int shadingRefAlt, int minAltShading, int maxAltShading, int altShadingFactor,
-		String mapTitle, int[] mapScales
+		String mapTitle, int[] mapScales, int outputMode
 	) {
 		assert blockMap != null;
 		assert biomeMap != null;
@@ -92,6 +98,8 @@ public class RegionRenderer
 
 		this.mapTitle = mapTitle;
 		this.mapScales = mapScales;
+
+                this.outputMode = outputMode;
 	}
 
 	/**
@@ -222,9 +230,12 @@ public class RegionRenderer
 				else if( z == depth-1 ) dyz = height[idx]-height[idx-width];
 				else dyz = (height[idx+width]-height[idx-width]) * 2;
 
-				float shade = dyx+dyz;
-				if( shade >  10 ) shade =  10;
-				if( shade < -10 ) shade = -10;
+                                float shade = 0;
+                                if (shadingReferenceAltitude != 0) {
+                                    shade = dyx+dyz;
+                                    if( shade >  10 ) shade =  10;
+                                    if( shade < -10 ) shade = -10;
+                                }
 
 				int altShade = altitudeShadingFactor * (height[idx] - shadingReferenceAltitude) / 255;
 				if( altShade < minAltitudeShading ) altShade = minAltitudeShading;
@@ -250,13 +261,14 @@ public class RegionRenderer
 	 * @param colors color data will be written here
 	 * @param heights height data (height of top of topmost non-transparent block) will be written here
 	 */
-	protected void preRender( RegionFile rf, int[] colors, short[] heights ) {
+    protected void preRender( RegionFile rf, int[] colors, short[] heights, short[] basementHeight, short[] density ) {
 		int maxSectionCount = 16;
 		short[][] sectionBlockIds = new short[maxSectionCount][16*16*16];
 		byte[][] sectionBlockData = new byte[maxSectionCount][16*16*16];
 		boolean[] usedSections = new boolean[maxSectionCount];
 		byte[] biomeIds = new byte[16*16];
 
+                // loop over the chunks within the region
 		for( int cz=0; cz<32; ++cz ) {
 			for( int cx=0; cx<32; ++cx ) {
 				resetInterval();
@@ -277,12 +289,20 @@ public class RegionRenderer
 					}
 
 					resetInterval();
+                                        // loop over the coordinates within a chunk (16x16)
 					for( int z=0; z<16; ++z ) {
 						for( int x=0; x<16; ++x ) {
+                                                    // the basement level is the first air from the bottom
+                                                    short basement = (short)-1;
+                                                    short nonair = 0;
+
 							int pixelColor = 0;
 							short pixelHeight = 0;
 							int biomeId = biomeIds[z*16+x]&0xFF;
 
+                                                        // it looks like within each (x,z) column, the column is
+                                                        // organized within sections of 16 blocks high.  A section
+                                                        // can be "not used" meaning it is filled with air
 							for( int s=0; s<maxSectionCount; ++s ) {
 								int absY=s*16;
 
@@ -298,6 +318,13 @@ public class RegionRenderer
 
 										final short blockId    =  blockIds[idx];
 										final byte  blockDatum = blockData[idx];
+                                                                                if (blockId == 0 && basement < 0) {
+                                                                                    basement = (short)absY;
+                                                                                }
+                                                                                if (blockId != 0) {
+                                                                                    nonair++;
+                                                                                }
+
 										int blockColor = getColor( blockId&0xFFFF, blockDatum, biomeId );
 										pixelColor = Color.overlay( pixelColor, blockColor );
 										if( Color.alpha(blockColor) >= shadeOpacityCutoff  ) {
@@ -308,6 +335,9 @@ public class RegionRenderer
 									if( minHeight <= absY && maxHeight >= absY+16 ) {
 										// Optimize the 16-blocks-of-air case:
 										pixelColor = Color.overlay( pixelColor, air16Color );
+                                                                                if (basement < 0) {
+                                                                                    basement = (short)absY;
+                                                                                }
 									} else {
 										 // TODO: mix
 									}
@@ -317,6 +347,8 @@ public class RegionRenderer
 							final int dIdx = 512*(cz*16+z)+16*cx+x;
 							colors[dIdx] = pixelColor;
 							heights[dIdx] = pixelHeight;
+                                                        basementHeight[dIdx] = (basement < 0) ? 0 : basement;
+                                                        density[dIdx] = nonair;
 						}
 					}
 					timer.preRendering += getInterval();
@@ -343,15 +375,37 @@ public class RegionRenderer
 
 		int[] surfaceColor  = new int[width*depth];
 		short[] surfaceHeight = new short[width*depth];
+		short[] basementHeight = new short[width*depth];
+                short[] density = new short[width*depth];
 
-		preRender( rf, surfaceColor, surfaceHeight );
-		demultiplyAlpha( surfaceColor );
-		shade( surfaceHeight, surfaceColor );
+		preRender( rf, surfaceColor, surfaceHeight, basementHeight, density );
+
+                switch (outputMode) {
+                case DENSITY_GRAYSCALE_MAP:
+                    for (int j=0; j<width*depth; j++) {
+                        surfaceColor[j] = 0xFF000000 + (0x010101 * density[j]);
+                    }
+                    break;
+                case BASEMENT_GRAYSCALE_MAP:
+                    for (int j=0; j<width*depth; j++) {
+                        surfaceColor[j] = 0xFF000000 + (0x010101 * basementHeight[j]);
+                    }
+                    break;
+                case ALTITUDE_GRAYSCALE_MAP:
+                    for (int j=0; j<width*depth; j++) {
+                        surfaceColor[j] = 0xFF000000 + (0x010101 * surfaceHeight[j]);
+                    }
+                    break;
+                case NORMAL_COLOR_MAP:
+                    demultiplyAlpha( surfaceColor );
+                    shade( surfaceHeight, surfaceColor );
+                    break;
+                }
 
 		BufferedImage bi = new BufferedImage( width, depth, BufferedImage.TYPE_INT_ARGB );
 
 		for( int z=0; z<depth; ++z ) {
-			bi.setRGB( 0, z, width, 1, surfaceColor, width*z, width );
+                    bi.setRGB( 0, z, width, 1, surfaceColor, width*z, width );
 		}
 		timer.postProcessing += getInterval();
 
@@ -553,22 +607,27 @@ public class RegionRenderer
 		"  -h, -? ; print usage instructions and exit\n" +
 		"  -f     ; force re-render even when images are newer than regions\n" +
 		"  -debug ; be chatty\n" +
-		"  -color-map <file>  ; load a custom color map from the specified file\n" +
-		"  -biome-map <file>  ; load a custom biome color map from the specified file\n" +
-		"  -create-tile-html  ; generate tiles.html in the output directory\n" +
-		"  -create-image-tree ; generate a PicGrid-compatible image tree\n" +
-		"  -create-big-image  ; merges all rendered images into a single file\n" +
-		"  -min-height <y>    ; only draw blocks above this height\n" +
-		"  -max-height <y>    ; only draw blocks below this height\n" +
+		"  -color-map <file>     ; load a custom color map from the specified file\n" +
+		"  -biome-map <file>     ; load a custom biome color map from the specified file\n" +
+		"  -create-tile-html     ; generate tiles.html in the output directory\n" +
+		"  -create-image-tree    ; generate a PicGrid-compatible image tree\n" +
+		"  -create-big-image     ; merges all rendered images into a single file\n" +
+		"  -create-altitude-map  ; creates a surface altitude grayscale\n" +
+		"  -create-density-map   ; creates a density (non-air count) grayscale\n" +
+		"  -create-basement-map  ; creates a basement floor height grayscale\n" +
+		"  -create-big-image     ; merges all rendered images into a single file\n" +
+		"  -create-big-image     ; merges all rendered images into a single file\n" +
+		"  -min-height <y>       ; only draw blocks above this height\n" +
+		"  -max-height <y>       ; only draw blocks below this height\n" +
 		"  -region-limit-rect <x0> <y0> <x1> <y1> ; limit which regions are rendered\n" +
-		"                     ; to those between the given region coordinates, e.g.\n" +
-		"                     ; 0 0 2 2 to render the 4 regions southeast of the origin.\n" +
+		"                        ; to those between the given region coordinates, e.g.\n" +
+		"                        ; 0 0 2 2 to render the 4 regions southeast of the origin.\n" +
 		"  -altitude-shading-factor <f>    ; how much altitude affects shading [36]\n" +
-		"  -shading-reference-altitude <y> ; reference altitude for shading [64]\n" +
+		"  -shading-reference-altitude <y> ; reference altitude for shading, 0=disable [64]\n" +
 		"  -min-altitude-shading <x>       ; lowest altitude shading modifier [-20]\n" +
 		"  -max-altitude-shading <x>       ; highest altitude shading modifier [20]\n" +
-		"  -title <title>     ; title to include with maps\n" +
-		"  -scales 1:<n>,...  ; list scales at which to render\n" +
+		"  -title <title>        ; title to include with maps\n" +
+		"  -scales 1:<n>,...     ; list scales at which to render\n" +
 		"\n" +
 		"Input files may be 'region/' directories or individual '.mca' files.\n" +
 		"\n" +
@@ -616,6 +675,12 @@ public class RegionRenderer
 					m.regionLimitRect = new BoundingRect( minX, minY, maxX, maxY );
 				} else if( "-create-big-image".equals(args[i]) ) {
 					m.createBigImage = true;
+				} else if( "-create-density-map".equals(args[i]) ) {
+                                        m.createDensityMap = true;
+				} else if( "-create-basement-map".equals(args[i]) ) {
+                                        m.createDensityMap = true;
+				} else if( "-create-altitude-map".equals(args[i]) ) {
+                                        m.createAltitudeMap = true;
 				} else if( "-color-map".equals(args[i]) ) {
 					m.colorMapFile = new File(args[++i]);
 				} else if( "-biome-map".equals(args[i]) ) {
@@ -673,6 +738,9 @@ public class RegionRenderer
 		Boolean createTileHtml = null;
 		Boolean createImageTree = null;
 		boolean createBigImage = false;
+                boolean createDensityMap = false;
+                boolean createBasementMap = false;
+                boolean createAltitudeMap = false;
 		BoundingRect regionLimitRect = BoundingRect.INFINITE;
 		int minHeight = Integer.MIN_VALUE;
 		int maxHeight = Integer.MAX_VALUE;
@@ -714,11 +782,21 @@ public class RegionRenderer
 			final BiomeMap biomeMap = biomeMapFile == null ? BiomeMap.loadDefault() :
 				BiomeMap.load( biomeMapFile );
 
+                        int outputMode = NORMAL_COLOR_MAP;
+                        if (createDensityMap) {
+                            outputMode = DENSITY_GRAYSCALE_MAP;
+                        } else if (createBasementMap) {
+                            outputMode = BASEMENT_GRAYSCALE_MAP;
+                        } else if (createAltitudeMap) {
+                            outputMode = ALTITUDE_GRAYSCALE_MAP;
+                        }
+
 			RegionMap rm = RegionMap.load(regionFiles, regionLimitRect);
 			RegionRenderer rr = new RegionRenderer(
 				colorMap, biomeMap, debug, minHeight, maxHeight,
 				shadingReferenceAltitude, minAltitudeShading, maxAltitudeShading, altitudeShadingFactor,
-				mapTitle, mapScales
+				mapTitle, mapScales,
+                                outputMode
 			);
 
 			rr.renderAll(rm, outputDir, forceReRender);
