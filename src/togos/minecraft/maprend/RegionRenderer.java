@@ -39,15 +39,15 @@ public class RegionRenderer
 		public long postProcessing;
 		public long imageSaving;
 		public long total;
-		
+
 		public int regionCount;
 		public int sectionCount;
-		
+
 		protected String formatTime( String name, long millis ) {
 			return String.format("%20s: % 8d   % 8.2f   % 8.4f", name, millis, millis/(double)regionCount, millis/(double)sectionCount);
 		}
 	}
-	
+
 	public final Set<Integer> defaultedBlockIds = new HashSet<Integer>();
 	public final Set<Integer> defaultedBlockIdDataValues = new HashSet<Integer>();
 	public final Set<Integer> defaultedBiomeIds = new HashSet<Integer>();
@@ -63,13 +63,13 @@ public class RegionRenderer
 	public final int maxAltitudeShading;
 	public final String mapTitle;
 	public final int[] mapScales;
-	
+
 	/**
 	 * Alpha below which blocks are considered transparent for purposes of shading
 	 * (i.e. blocks with alpha < this will not be shaded, but blocks below them will be)
 	 */
-	private int shadeOpacityCutoff = 0x20; 
-	
+	private int shadeOpacityCutoff = 0x20;
+
 	public RegionRenderer(
 		BlockMap blockMap, BiomeMap biomeMap, boolean debug, int minHeight, int maxHeight,
 		int shadingRefAlt, int minAltShading, int maxAltShading, int altShadingFactor,
@@ -77,28 +77,28 @@ public class RegionRenderer
 	) {
 		assert blockMap != null;
 		assert biomeMap != null;
-		
+
 		this.blockMap = blockMap;
 		this.biomeMap = biomeMap;
 		this.air16Color = Color.overlay( 0, getColor(0, 0, 0), 16 );
 		this.debug = debug;
-		
+
 		this.minHeight = minHeight;
 		this.maxHeight = maxHeight;
 		this.shadingReferenceAltitude = shadingRefAlt;
 		this.minAltitudeShading = minAltShading;
 		this.maxAltitudeShading = maxAltShading;
 		this.altitudeShadingFactor = altShadingFactor;
-		
+
 		this.mapTitle = mapTitle;
 		this.mapScales = mapScales;
 	}
-	
+
 	/**
 	 * Extract a 4-bit integer from a byte in an array, where the first nybble
 	 * in each byte (even nybble indexes) occupies the lower 4 bits and the second
 	 * (odd nybble indexes) occupies the high bits.
-	 * 
+	 *
 	 * @param arr the source array
 	 * @param index the index (in nybbles) of the desired 4 bits
 	 * @return the desired 4 bits as the lower bits of a byte
@@ -106,7 +106,7 @@ public class RegionRenderer
 	protected static final byte nybble( byte[] arr, int index ) {
 		return (byte)((index % 2 == 0 ? arr[index/2] : (arr[index/2]>>4))&0x0F);
 	}
-	
+
 	/**
 	 * @param levelTag
 	 * @param maxSectionCount
@@ -118,7 +118,7 @@ public class RegionRenderer
 		for( int i=0; i<maxSectionCount; ++i ) {
 			sectionsUsed[i] = false;
 		}
-		
+
 		Tag biomesTag = levelTag.getValue().get( "Biomes" );
 		if (biomesTag != null) {
 			System.arraycopy( ((ByteArrayTag)biomesTag).getValue(), 0, biomeIds, 0, 16*16 );
@@ -127,7 +127,7 @@ public class RegionRenderer
 				biomeIds[i] = -1;
 			}
 		}
-		
+
 		for( Tag t : ((ListTag)levelTag.getValue().get("Sections")).getValue() ) {
 			CompoundTag sectionInfo = (CompoundTag)t;
 			int sectionIndex = ((ByteTag)sectionInfo.getValue().get("Y")).getValue().intValue();
@@ -156,9 +156,9 @@ public class RegionRenderer
 			}
 		}
 	}
-	
+
 	//// Color look-up ////
-	
+
 	protected void defaultedBlockColor( int blockId ) {
 		defaultedBlockIds.add(blockId);
 	}
@@ -168,14 +168,14 @@ public class RegionRenderer
 	protected void defaultedBiomeColor( int biomeId ) {
 		defaultedBiomeIds.add(biomeId);
 	}
-	
+
 	protected int getColor( int blockId, int blockDatum, int biomeId ) {
 		assert blockId >= 0 && blockId < blockMap.blocks.length;
 		assert blockDatum >= 0;
-		
+
 		int blockColor;
 		int biomeInfluence;
-		
+
 		Block bc = blockMap.blocks[blockId];
 		if( bc.hasSubColors.length > blockDatum && bc.hasSubColors[blockDatum] ) {
 			blockColor = bc.subColors[blockDatum];
@@ -190,20 +190,20 @@ public class RegionRenderer
 		if( bc.isDefault ) {
 			defaultedBlockColor(blockId);
 		}
-		
+
 		Biome biome = biomeMap.getBiome(biomeId);
 		int biomeColor = biome.getMultiplier( biomeInfluence );
 		if( biome.isDefault ) defaultedBiomeColor(biomeId);
-		
+
 		return Color.multiplySolid( blockColor, biomeColor );
 	}
-	
+
 	//// Handy color-manipulation functions ////
-	
+
 	protected static void demultiplyAlpha( int[] color ) {
 		for( int i=color.length-1; i>=0; --i ) color[i] = Color.demultiplyAlpha(color[i]);
 	}
-	
+
 	protected void shade( short[] height, int[] color ) {
 		int width=512, depth=512;
 
@@ -211,9 +211,9 @@ public class RegionRenderer
 		for( int z=0; z<depth; ++z ) {
 			for( int x=0; x<width; ++x, ++idx ) {
 				float dyx, dyz;
-				
+
 				if( color[idx] == 0 ) continue;
-				
+
 				if(      x == 0       ) dyx = height[idx+1]-height[idx];
 				else if( x == width-1 ) dyx = height[idx]-height[idx-1];
 				else dyx = (height[idx+1]-height[idx-1]) * 2;
@@ -221,29 +221,29 @@ public class RegionRenderer
 				if(      z == 0       ) dyz = height[idx+width]-height[idx];
 				else if( z == depth-1 ) dyz = height[idx]-height[idx-width];
 				else dyz = (height[idx+width]-height[idx-width]) * 2;
-				
+
 				float shade = dyx+dyz;
 				if( shade >  10 ) shade =  10;
 				if( shade < -10 ) shade = -10;
-				
+
 				int altShade = altitudeShadingFactor * (height[idx] - shadingReferenceAltitude) / 255;
 				if( altShade < minAltitudeShading ) altShade = minAltitudeShading;
 				if( altShade > maxAltitudeShading ) altShade = maxAltitudeShading;
-				
+
 				shade += altShade;
-				
+
 				color[idx] = Color.shade( color[idx], (int)(shade*8) );
 			}
 		}
 	}
-	
+
 	//// Rendering ////
-	
+
 	Timer timer = new Timer();
 	protected long startTime;
 	protected void resetInterval() { startTime = System.currentTimeMillis(); }
 	protected long getInterval() { return System.currentTimeMillis() - startTime; }
-	
+
 	/**
 	 * Load color and height data from a region.
 	 * @param rf
@@ -256,9 +256,9 @@ public class RegionRenderer
 		byte[][] sectionBlockData = new byte[maxSectionCount][16*16*16];
 		boolean[] usedSections = new boolean[maxSectionCount];
 		byte[] biomeIds = new byte[16*16];
-		
+
 		for( int cz=0; cz<32; ++cz ) {
-			for( int cx=0; cx<32; ++cx ) {				
+			for( int cx=0; cx<32; ++cx ) {
 				resetInterval();
 				DataInputStream cis = rf.getChunkDataInputStream(cx,cz);
 				if( cis == null ) continue;
@@ -269,33 +269,33 @@ public class RegionRenderer
 					CompoundTag levelTag = (CompoundTag)rootTag.getValue().get("Level");
 					loadChunkData( levelTag, maxSectionCount, sectionBlockIds, sectionBlockData, usedSections, biomeIds );
 					timer.regionLoading += getInterval();
-					
+
 					for( int s=0; s<maxSectionCount; ++s ) {
 						if( usedSections[s] ) {
 							++timer.sectionCount;
 						}
 					}
-					
+
 					resetInterval();
 					for( int z=0; z<16; ++z ) {
 						for( int x=0; x<16; ++x ) {
 							int pixelColor = 0;
 							short pixelHeight = 0;
 							int biomeId = biomeIds[z*16+x]&0xFF;
-							
+
 							for( int s=0; s<maxSectionCount; ++s ) {
 								int absY=s*16;
-								
+
 								if( absY    >= maxHeight ) continue;
 								if( absY+16 <= minHeight ) continue;
-								
+
 								if( usedSections[s] ) {
 									short[] blockIds  = sectionBlockIds[s];
 									byte[]  blockData = sectionBlockData[s];
-									
+
 									for( int idx=z*16+x, y=0; y<16; ++y, idx+=256, ++absY ) {
 										if( absY < minHeight || absY >= maxHeight ) continue;
-										
+
 										final short blockId    =  blockIds[idx];
 										final byte  blockDatum = blockData[idx];
 										int blockColor = getColor( blockId&0xFFFF, blockDatum, biomeId );
@@ -313,8 +313,8 @@ public class RegionRenderer
 									}
 								}
 							}
-							
-							final int dIdx = 512*(cz*16+z)+16*cx+x; 
+
+							final int dIdx = 512*(cz*16+z)+16*cx+x;
 							colors[dIdx] = pixelColor;
 							heights[dIdx] = pixelHeight;
 						}
@@ -336,61 +336,61 @@ public class RegionRenderer
 			}
 		}
 	}
-	
+
 	public BufferedImage render( RegionFile rf ) {
 		resetInterval();
 		int width=512, depth=512;
-		
+
 		int[] surfaceColor  = new int[width*depth];
 		short[] surfaceHeight = new short[width*depth];
-		
+
 		preRender( rf, surfaceColor, surfaceHeight );
 		demultiplyAlpha( surfaceColor );
 		shade( surfaceHeight, surfaceColor );
-		
+
 		BufferedImage bi = new BufferedImage( width, depth, BufferedImage.TYPE_INT_ARGB );
-		
+
 		for( int z=0; z<depth; ++z ) {
 			bi.setRGB( 0, z, width, 1, surfaceColor, width*z, width );
 		}
 		timer.postProcessing += getInterval();
-		
+
 		return bi;
 	}
-	
+
 	protected static String pad( String v, int targetLength ) {
 		while( v.length() < targetLength ) v = " "+v;
 		return v;
 	}
-	
+
 	protected static String pad( int v, int targetLength ) {
 		return pad( ""+v, targetLength );
 	}
-	
+
 	public void renderAll( RegionMap rm, File outputDir, boolean force ) throws IOException {
 		long startTime = System.currentTimeMillis();
-		
+
 		if( !outputDir.exists() ) outputDir.mkdirs();
-		
+
 		if( rm.regions.size() == 0 ) {
 			System.err.println("Warning: no regions found!");
 		}
-		
+
 		for( Region r : rm.regions ) {
 			if( r == null ) continue;
-			
+
 			if( debug ) System.err.print("Region "+pad(r.rx, 4)+", "+pad(r.rz, 4)+"...");
-			
+
 			String imageFilename = "tile."+r.rx+"."+r.rz+".png";
 			File fullSizeImageFile = r.imageFile = new File( outputDir, imageFilename );
-			
+
 			boolean fullSizeNeedsReRender = false;
 			if( force || !fullSizeImageFile.exists() || fullSizeImageFile.lastModified() < r.regionFile.lastModified() ) {
 				fullSizeNeedsReRender = true;
 			} else {
 				if( debug ) System.err.println("image already up-to-date");
 			}
-			
+
 			boolean anyScalesNeedReRender = false;
 			for( int scale : mapScales ) {
 				if( scale == 1 ) continue;
@@ -399,19 +399,19 @@ public class RegionRenderer
 					anyScalesNeedReRender = true;
 				}
 			}
-			
+
 			BufferedImage fullSize;
 			if( fullSizeNeedsReRender ) {
 				fullSizeImageFile.delete();
 				if( debug ) System.err.println("generating "+imageFilename+"...");
-				
+
 				RegionFile rf = new RegionFile( r.regionFile );
 				try {
 					fullSize = render( rf );
 				} finally {
 					rf.close();
 				}
-				
+
 				try {
 					resetInterval();
 					ImageIO.write(fullSize, "png", fullSizeImageFile);
@@ -426,7 +426,7 @@ public class RegionRenderer
 			} else {
 				continue;
 			}
-			
+
 			for( int scale : mapScales ) {
 				if( scale == 1 ) continue; // Already wrote!
 				File f = new File( outputDir, "tile."+r.rx+"."+r.rz+".1-"+scale+".png" );
@@ -442,7 +442,7 @@ public class RegionRenderer
 		}
 		timer.total += System.currentTimeMillis() - startTime;
 	}
-	
+
 	/**
 	 * Create a "tiles.html" file containing a table with
 	 * all region images (tile.<x>.<z>.png) that exist in outDir
@@ -452,7 +452,7 @@ public class RegionRenderer
 		if( debug ) System.err.println("Writing HTML tiles...");
 		for( int scale : mapScales ) {
 			int regionSize = 512 / scale;
-			
+
 			try {
 				File cssFile = new File(outputDir, "tiles.css");
 				if( !cssFile.exists() ) {
@@ -472,7 +472,7 @@ public class RegionRenderer
 						cssInputStream.close();
 					}
 				}
-				
+
 				Writer w = new OutputStreamWriter(new FileOutputStream(new File(
 					outputDir,
 					scale == 1 ? "tiles.html" : "tiles.1-"+scale+".html"
@@ -482,7 +482,7 @@ public class RegionRenderer
 					w.write("<title>"+mapTitle+" - 1:"+scale+"</title>\n");
 					w.write("<link rel=\"stylesheet\" type=\"text/css\" href=\"tiles.css\"/><body>\n");
 					w.write("<div style=\"height: "+(maxZ-minZ+1)*regionSize+"px\">");
-					
+
 					for( int z=minZ; z<=maxZ; ++z ) {
 						for( int x=minX; x<=maxX; ++x ) {
 							String fullSizeImageFilename = "tile."+x+"."+z+".png";
@@ -506,7 +506,7 @@ public class RegionRenderer
 							}
 						}
 					}
-					
+
 					w.write("</div>\n");
 					if( mapScales.length > 1 ) {
 						w.write("<div class=\"scales-nav\">");
@@ -535,19 +535,19 @@ public class RegionRenderer
 			}
 		}
 	}
-	
+
 	public void createImageTree( RegionMap rm ) {
 		if( debug ) System.err.println("Composing image tree...");
 		ImageTreeComposer itc = new ImageTreeComposer(new ContentStore());
 		System.out.println( itc.compose( rm ) );
 	}
-	
+
 	public void createBigImage( RegionMap rm, File outputDir) {
 		if( debug ) System.err.println( "Creating big image..." );
 		BigImageMerger bic = new BigImageMerger();
 		bic.createBigImage( rm, outputDir, debug );
 	}
-	
+
 	public static final String USAGE =
 		"Usage: TMCMR [options] -o <output-dir> <input-files>\n" +
 		"  -h, -? ; print usage instructions and exit\n" +
@@ -576,17 +576,17 @@ public class RegionRenderer
 		"\n" +
 		"Compound image tree blobs will be written to ~/.ccouch/data/tmcmr/\n" +
 		"Compound images can then be rendered with PicGrid.";
-	
+
 	protected static final boolean booleanValue( Boolean b, boolean defalt ) {
 		return b == null ? defalt : b.booleanValue();
 	}
-	
+
 	protected static boolean singleDirectoryGiven( List<File> files ) {
 		return files.size() == 1 && files.get(0).isDirectory();
 	}
-	
+
 	//// Command-line processing ////
-	
+
 	static class RegionRendererCommand
 	{
 		public static RegionRendererCommand fromArguments( String...args ) {
@@ -653,7 +653,7 @@ public class RegionRenderer
 			m.errorMessage = validateSettings(m);
 			return m;
 		}
-		
+
 		private static String validateSettings( RegionRendererCommand m ) {
 			if( m.regionFiles.size() == 0 )
 				return "No regions or directories specified.";
@@ -662,7 +662,7 @@ public class RegionRenderer
 			else
 				return null;
 		}
-		
+
 		File outputDir = null;
 		boolean forceReRender = false;
 		boolean debug = false;
@@ -682,21 +682,21 @@ public class RegionRenderer
 		int altitudeShadingFactor = 36;
 		int[] mapScales = {1};
 		String mapTitle = "Regions";
-		
+
 		String errorMessage = null;
-		
+
 		static boolean getDefault( Boolean b, boolean defaultValue ) {
-			return b != null ? b.booleanValue() : defaultValue; 
+			return b != null ? b.booleanValue() : defaultValue;
 		}
-		
+
 		public boolean shouldCreateTileHtml() {
 			return getDefault(this.createTileHtml, singleDirectoryGiven(regionFiles));
 		}
-		
+
 		public boolean shouldCreateImageTree() {
 			return getDefault(this.createImageTree, false);
 		}
-		
+
 		public int run() throws IOException {
 			if( errorMessage != null ) {
 				System.err.println( "Error: "+errorMessage );
@@ -707,20 +707,20 @@ public class RegionRenderer
 				System.out.println( USAGE );
 				return 0;
 			}
-			
-			final BlockMap colorMap = colorMapFile == null ? BlockMap.loadDefault() : 
+
+			final BlockMap colorMap = colorMapFile == null ? BlockMap.loadDefault() :
 				BlockMap.load(colorMapFile);
-			        
+
 			final BiomeMap biomeMap = biomeMapFile == null ? BiomeMap.loadDefault() :
 				BiomeMap.load( biomeMapFile );
-			
+
 			RegionMap rm = RegionMap.load(regionFiles, regionLimitRect);
 			RegionRenderer rr = new RegionRenderer(
 				colorMap, biomeMap, debug, minHeight, maxHeight,
 				shadingReferenceAltitude, minAltitudeShading, maxAltitudeShading, altitudeShadingFactor,
 				mapTitle, mapScales
 			);
-			
+
 			rr.renderAll(rm, outputDir, forceReRender);
 			if( debug ) {
 				final Timer tim = rr.timer;
@@ -732,7 +732,7 @@ public class RegionRenderer
 				System.err.println(tim.formatTime("Image saving",    tim.imageSaving));
 				System.err.println(tim.formatTime("Total",           tim.total));
 				System.err.println();
-				
+
 				if( rr.defaultedBlockIds.size() > 0 ) {
 					System.err.println("The following block IDs were not explicitly mapped to colors:");
 					int z=0;
@@ -746,7 +746,7 @@ public class RegionRenderer
 					System.err.println("All block IDs encountered were accounted for in the block color map.");
 				}
 				System.err.println();
-				
+
 				if( rr.defaultedBlockIdDataValues.size() > 0 ) {
 					System.err.println("The following block ID + data value pairs were not explicitly mapped to colors");
 					System.err.println("(this is not necessarily a problem, as the base IDs were mapped to a color):");
@@ -761,7 +761,7 @@ public class RegionRenderer
 					System.err.println("All block ID + data value pairs encountered were accounted for in the block color map.");
 				}
 				System.err.println();
-				
+
 				if( rr.defaultedBiomeIds.size() > 0 ) {
 					System.err.println("The following biome IDs were not explicitly mapped to colors:");
 					int z = 0;
@@ -776,15 +776,15 @@ public class RegionRenderer
 				}
 				System.err.println();
 			}
-			
+
 			if( shouldCreateTileHtml()  ) rr.createTileHtml(rm.minX, rm.minZ, rm.maxX, rm.maxZ, outputDir);
 			if( shouldCreateImageTree() ) rr.createImageTree(rm);
 			if( createBigImage ) rr.createBigImage(rm, outputDir);
-			
+
 			return 0;
 		}
 	}
-	
+
 	public static void main( String[] args ) throws Exception {
 		System.exit( RegionRendererCommand.fromArguments( args ).run() );
 	}
